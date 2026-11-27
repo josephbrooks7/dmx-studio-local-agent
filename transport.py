@@ -12,7 +12,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 def rpc(operation, key, publishable_key, fields=None):
-    if operation not in ("dmx_claim_diagnostic", "dmx_finish_diagnostic"):
+    if operation not in ("dmx_claim_diagnostic", "dmx_finish_diagnostic",
+                         "dmx_poll_previews", "dmx_initialize_preview",
+                         "dmx_upload_preview_chunk", "dmx_finish_preview"):
         raise ValueError("Unsupported RPC")
     if not re.fullmatch(r"[0-9a-f]{64}", key):
         raise ValueError("Invalid device key")
