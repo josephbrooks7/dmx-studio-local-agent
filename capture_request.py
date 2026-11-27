@@ -26,6 +26,7 @@ def publish_request(request, build, *, enabled=False):
     info = root.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise ValueError("Expected private directory")
+    cleanup_old_exports(root)
     payload = {"id": identifier, "character": character, "build": build,
                "created_at": request["created_at"], "expires_at": request["expires_at"]}
     target = root / (identifier + ".request.json")
@@ -38,3 +39,27 @@ def publish_request(request, build, *, enabled=False):
         if os.path.exists(temporary):
             os.unlink(temporary)
     return True
+
+def cleanup_old_exports(root):
+    """Remove only private UUID-named diagnostic files older than one day."""
+    cutoff = datetime.now(timezone.utc).timestamp() - 86400
+    removed = 0
+    for path in root.iterdir():
+        if removed >= 64:
+            break
+        suffix = next((s for s in (".request.json", ".png", ".json")
+                       if path.name.endswith(s)), None)
+        if suffix is None:
+            continue
+        identifier = path.name[:-len(suffix)]
+        try:
+            if str(UUID(identifier)) != identifier:
+                continue
+            info = path.lstat()
+            if (stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
+                    and not info.st_mode & 0o077 and info.st_mtime < cutoff):
+                path.unlink()
+                removed += 1
+        except (ValueError, FileNotFoundError):
+            continue
+    return removed
