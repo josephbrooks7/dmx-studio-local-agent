@@ -28,7 +28,7 @@ def read_preview(character):
     return data
 
 def read_request_preview(character, request_id, created_at, build):
-    """Read a fresh request-specific export; build binding requires metadata separately."""
+    """Read a fresh request-specific export with matching metadata."""
     from datetime import datetime, timezone
     from uuid import UUID
     if character not in NAMES or not isinstance(build, str) or not build:
@@ -52,4 +52,27 @@ def read_request_preview(character, request_id, created_at, build):
     width, height = struct.unpack(">II", data[16:24])
     if not (1 <= width <= 4096 and 1 <= height <= 4096):
         raise ValueError("Invalid dimensions")
+    import hashlib
+    import json
+    fd = os.open(EXPORT_DIR / (identifier + ".json"), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077 or info.st_size > 2048
+                or info.st_mtime < created.timestamp()):
+            raise ValueError("Invalid manifest file")
+        raw = stream.read(2049)
+    if len(raw) > 2048:
+        raise ValueError("Manifest too large")
+    metadata = json.loads(raw)
+    if not isinstance(metadata, dict) or set(metadata) != {"id", "character", "build", "captured_at", "sha256"}:
+        raise ValueError("Invalid manifest")
+    if (metadata["id"] != identifier or metadata["character"] != character
+            or metadata["build"] != build
+            or metadata["sha256"] != hashlib.sha256(data).hexdigest()):
+        raise ValueError("Manifest mismatch")
+    captured = datetime.fromisoformat(metadata["captured_at"].replace("Z", "+00:00"))
+    # Swift ISO8601DateFormatter has whole-second precision.
+    if captured.tzinfo is None or captured < created.replace(microsecond=0) or captured > datetime.now(timezone.utc):
+        raise ValueError("Invalid capture timestamp")
     return data
