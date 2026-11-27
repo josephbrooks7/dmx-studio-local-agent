@@ -1,5 +1,6 @@
 """Local-only diagnostics; no network, shell execution, or device secrets."""
 import json
+import hashlib
 import os
 import plistlib
 from pathlib import Path
@@ -9,7 +10,7 @@ APP = Path("/Applications/DMX Studio.app")
 def collect():
     contents = APP / "Contents"
     result = {"schema": 1, "installed": APP.is_dir(), "version": None,
-              "build": None, "asset_counts": {}, "resource_bytes": 0}
+              "build": None, "asset_counts": {}, "resource_bytes": 0, "model_inventory": []}
     if not result["installed"]:
         return result
     with (contents / "Info.plist").open("rb") as stream:
@@ -28,6 +29,14 @@ def collect():
             if suffix in allowed:
                 result["asset_counts"][suffix] = result["asset_counts"].get(suffix, 0) + 1
                 result["resource_bytes"] += path.stat().st_size
+                if suffix in {".usdz", ".scn", ".glb", ".gltf", ".dae", ".obj", ".fbx"} and len(result["model_inventory"]) < 12:
+                    digest = hashlib.sha256()
+                    with path.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(1048576), b""):
+                            digest.update(chunk)
+                    result["model_inventory"].append({
+                        "name": name[:120], "bytes": path.stat().st_size,
+                        "sha256": digest.hexdigest()})
     return result
 
 if __name__ == "__main__":
