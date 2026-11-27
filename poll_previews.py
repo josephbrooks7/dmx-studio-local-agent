@@ -28,3 +28,27 @@ def upload_request(request, build, call, *, enabled=False, reader=None):
                 "p_payload": payload}) is not True:
             return False
     return call("dmx_finish_preview", {"p_id": request_id}) is True
+
+def poll_once(device_key, publishable_key, build, *, enabled=False):
+    """One bounded cycle; missing renders are deferred until a later poll."""
+    if enabled is not True:
+        return 0
+    from transport import rpc
+    from capture_request import publish_request
+    from character_preview import read_request_preview
+    def call(operation, fields=None):
+        return rpc(operation, device_key, publishable_key, fields)
+    requests = call("dmx_poll_previews")
+    if not isinstance(requests, list) or len(requests) > 2:
+        raise ValueError("Unexpected preview queue")
+    completed = 0
+    for request in requests:
+        if not publish_request(request, build, enabled=True):
+            continue
+        try:
+            if upload_request(request, build, call, enabled=True, reader=read_request_preview):
+                completed += 1
+        except FileNotFoundError:
+            # The app has not published both files yet.
+            continue
+    return completed
